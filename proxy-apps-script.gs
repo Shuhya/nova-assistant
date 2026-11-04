@@ -1,20 +1,19 @@
 /**
- * Nova — Proxy Apps Script (v3)
- * Rôles : relais vers l'API Mistral + mémoire synchronisée + Google Agenda.
+ * Nova — Proxy Apps Script (v4)
+ * Rôles : relais vers l'API Mistral + mémoire synchronisée + Google Agenda + RECHERCHE WEB.
  * La clé API vit dans les Script Properties : jamais dans le code ni dans le repo.
  *
- * MISE À JOUR depuis la v2 :
+ * MISE À JOUR depuis la v3 (recherche web) :
  * 1. Remplace tout Code.gs par ce fichier.
- * 2. Dans l'éditeur, sélectionne et exécute UNE FOIS la fonction "autoriser()"
- *    → Google demande l'autorisation d'accéder ton agenda → Accepter.
- *    (C'est nécessaire pour que ?action=agenda fonctionne.)
- * 3. Déployer ▸ Gérer les déploiements ▸ ✏️ ▸ Nouvelle version ▸ Déployer (URL inchangée).
+ * 2. Déployer ▸ Gérer les déploiements ▸ ✏️ ▸ Nouvelle version ▸ Déployer (URL inchangée).
+ *    (Pas de nouvelle autorisation nécessaire si l'agenda marchait déjà.)
  *
  * Endpoints (appelés par Nova) :
  *   GET  ?action=mem        → renvoie la mémoire synchronisée (JSON)
  *   POST ?action=mem        → { memories: [...], mode: "replace" } → enregistre, renvoie la liste
  *   GET  ?action=agenda     → événements Google Agenda du jour (JSON)
- *   GET  (sans action)      → test : "Nova proxy en ligne (v3)"
+ *   GET  ?action=search&q=X → recherche web DuckDuckGo (JSON : [{title, url, snippet}])
+ *   GET  (sans action)      → test : "Nova proxy en ligne (v4)"
  *   POST (sans action)      → relais chat vers l'API Mistral (limite 300 appels/jour)
  */
 
@@ -74,16 +73,69 @@ function autoriser() {
   CalendarApp.getDefaultCalendar().getEventsForDay(new Date());
 }
 
+/* ============ RECHERCHE WEB (DuckDuckGo lite) ============ */
+function htmlDecode(s) {
+  return s.replace(/<[^>]*>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#x27;|&#39;|&apos;/g, "'")
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/\s+/g, ' ')
+          .trim();
+}
+function webSearch(q) {
+  q = String(q || '').trim();
+  if (!q) return [];
+  var res = UrlFetchApp.fetch('https://lite.duckduckgo.com/lite/?q=' + encodeURIComponent(q),
+    { muteHttpExceptions: true, followRedirects: true });
+  var html = res.getContentText();
+  var out = [];
+  // liens de résultats
+  var re = /<a[^>]*class="result-link"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+  var m;
+  while ((m = re.exec(html)) !== null && out.length < 6) {
+    var url = m[1];
+    var dm = url.match(/[?&]uddg=([^&]+)/);
+    if (dm) url = decodeURIComponent(dm[1]);
+    var title = htmlDecode(m[2]);
+    if (url.indexOf('http') === 0 && title) out.push({ title: title, url: url, snippet: '' });
+  }
+  // extraits associés (même ordre dans la page)
+  var reS = /class="result-snippet"[^>]*>([\s\S]*?)<\/td>/g;
+  var i = 0, ms;
+  while ((ms = reS.exec(html)) !== null && i < out.length) {
+    out[i].snippet = htmlDecode(ms[1]).slice(0, 300);
+    i++;
+  }
+  return out;
+}
+
+/* ============ LIMITE QUOTIDIENNE ============ */
+function compterEtVerifier() {
+  var today = Utilities.formatDate(new Date(), 'Europe/Paris', 'yyyy-MM-dd');
+  var cache = CacheService.getScriptCache();
+  var compte = cache.get('compte_' + today);
+  var n = compte ? parseInt(compte, 10) : 0;
+  if (n >= MAX_APPELS_PAR_JOUR) throw new Error('Limite de ' + MAX_APPELS_PAR_JOUR + ' appels/jour atteinte sur ce proxy.');
+  cache.put('compte_' + today, String(n + 1), 86400);
+}
+
 /* ============ ROUTAGE ============ */
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || '';
   try {
     if (action === 'mem') return jsonOut(getMemory());
     if (action === 'agenda') return jsonOut(getAgenda());
+    if (action === 'search') {
+      compterEtVerifier();
+      return jsonOut(webSearch(e.parameter.q || ''));
+    }
   } catch (err) {
     return jsonOut({ error: String(err) });
   }
-  return textOut('Nova proxy en ligne (v3)');
+  return textOut('Nova proxy en ligne (v4, limite ' + MAX_APPELS_PAR_JOUR + ' appels/jour)');
 }
 
 function doPost(e) {
@@ -98,17 +150,9 @@ function doPost(e) {
     }
 
     /* --- Chat Mistral (limite anti-abus) --- */
-    var props = PropertiesService.getScriptProperties();
-    var today = Utilities.formatDate(new Date(), 'Europe/Paris', 'yyyy-MM-dd');
-    var cache = CacheService.getScriptCache();
-    var compte = cache.get('compte_' + today);
-    var n = compte ? parseInt(compte, 10) : 0;
-    if (n >= MAX_APPELS_PAR_JOUR) {
-      return jsonOut({ error: 'Limite de ' + MAX_APPELS_PAR_JOUR + ' appels/jour atteinte sur ce proxy.' });
-    }
-    cache.put('compte_' + today, String(n + 1), 86400);
+    compterEtVerifier();
 
-    var key = props.getProperty('MISTRAL_KEY');
+    var key = PropertiesService.getScriptProperties().getProperty('MISTRAL_KEY');
     if (!key) throw new Error('Clé MISTRAL_KEY absente : exécute setupCle() une fois.');
     var resp = UrlFetchApp.fetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'post',
@@ -123,7 +167,7 @@ function doPost(e) {
   }
 }
 
-/* À décommenter, remplir et exécuter UNE FOIS si la clé n'est pas encore enregistrée :
+/* À décommenter, remplir et exécuter UNE FOI si la clé n'est pas encore enregistrée :
 function setupCle() {
   PropertiesService.getScriptProperties().setProperty('MISTRAL_KEY', 'TA_CLE_ICI');
 }

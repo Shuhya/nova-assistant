@@ -74,9 +74,13 @@
     box-shadow: var(--shadow); backdrop-filter: blur(8px); }
   .msg.nova .who { font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; margin-bottom: 4px;
     text-shadow: 0 0 8px var(--cyan-glow); }
+  .msg.nova .src { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line2); font-size: 11.5px; color: var(--muted); }
+  .msg.nova .src a { color: var(--gold); text-decoration: none; }
+  .msg.nova .src a:hover { text-decoration: underline; }
   .msg.sys { align-self: center; font-size: 11.5px; color: var(--muted); background: var(--surface2);
     border: 1px solid var(--line2); border-radius: 100px; padding: 5px 14px; letter-spacing: .5px; }
   .typing { align-self: flex-start; color: var(--cyan); font-size: 12.5px; padding: 4px 8px; letter-spacing: 1px; }
+  .typing .tstat { color: var(--cyan); margin-right: 4px; }
   .typing span { animation: blink 1.2s infinite; }
   .typing span:nth-child(2) { animation-delay: .2s; } .typing span:nth-child(3) { animation-delay: .4s; }
   @keyframes blink { 0%,100%{opacity:.15} 50%{opacity:1} }
@@ -179,7 +183,7 @@
 <aside id="sidebar">
   <div class="sb-top">
     <div class="logo">N</div>
-    <div><h1>NOVA</h1><div class="sub">Système personnel · v3.1</div></div>
+    <div><h1>NOVA</h1><div class="sub">Système personnel · v3.2</div></div>
   </div>
   <nav>
     <button class="nav-item active" data-view="chat"><span class="ico">💬</span> Discussion</button>
@@ -188,7 +192,7 @@
   </nav>
   <div class="sb-foot">
     <div><span class="brain-dot ko" id="brainDot"></span><span id="brainTxt">Cerveau hors ligne</span></div>
-    <div style="margin-top:6px">v3.1 · Sully-sur-Loire</div>
+    <div style="margin-top:6px">v3.2 · Sully-sur-Loire</div>
   </div>
 </aside>
 
@@ -217,6 +221,7 @@
           <button class="qbtn" data-cmd="meteo">🌧️ Météo</button>
           <button class="qbtn" data-cmd="actus">📰 Actus</button>
           <button class="qbtn" data-cmd="agenda">🗓️ Agenda</button>
+          <button class="qbtn" data-cmd="web">🌐 Chercher sur le web</button>
           <button class="qbtn" data-cmd="memoire">🧠 Ce que tu sais de moi</button>
         </div>
       </div>
@@ -253,8 +258,18 @@
             <div class="hint">Optionnel — le proxy est prioritaire s'il est rempli.</div>
           </div>
           <div class="field">
+            <label>Modèle (cerveau de Nova)</label>
+            <select id="setModel">
+              <option value="mistral-medium-latest">Medium — équilibré (recommandé)</option>
+              <option value="mistral-small-latest">Small — le plus rapide</option>
+              <option value="mistral-large-latest">Large — le plus intelligent</option>
+            </select>
+            <div class="hint">Large répond le mieux mais consomme plus de quota sur ta clé Mistral.</div>
+          </div>
+          <div class="field">
             <label>Voix de Nova</label>
             <select id="setVoice"></select>
+            <div class="hint">Les voix « Natural » / « Google » sont les plus réalistes. Sur PC, Chrome/Edge en ont ; sur téléphone elles sont souvent très bonnes.</div>
           </div>
           <div class="field row">
             <label class="switch"><input type="checkbox" id="setSpeak" /><span class="slider"></span></label>
@@ -302,13 +317,14 @@ window.addEventListener("error", function (e) {
 
 /* ===================== ÉTAT ===================== */
 const LS = { key:"nova.apikey", proxy:"nova.proxy", feeds:"nova.feeds", events:"nova.events", mem:"nova.memories",
-  hist:"nova.history", speak:"nova.speak", voice:"nova.voice", briefday:"nova.briefday" };
+  hist:"nova.history", speak:"nova.speak", voice:"nova.voice", briefday:"nova.briefday", model:"nova.model" };
 const store = {
   get(k,d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; } },
   set(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 };
 const CITY = { name:"Sully-sur-Loire", lat:47.7656, lon:2.0789 };
 const DEFAULT_PROXY = "https://script.google.com/macros/s/AKfycbynSuEJYUoMJY8kbD94FXPNqVNvVLGBqBg9OXR-SI_8DAte7uzg2A7revXd3Owe7LKkjw/exec";
+const DEFAULT_MODEL = "mistral-medium-latest";
 const DEFAULT_FEEDS = [
   { name:"Le Monde", url:"https://www.lemonde.fr/rss/une.xml" },
   { name:"France Info", url:"https://www.francetvinfo.fr/titres.rss" },
@@ -363,24 +379,29 @@ document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => {
     $("#viewTitle").textContent = TITLES[b.dataset.view];
     $("#sidebar").classList.remove("open");
     if (b.dataset.view === "memory") renderMem();
-    if (b.dataset.view === "settings") { $("#setProxy").value = store.get(LS.proxy,""); $("#setKey").value = store.get(LS.key,""); renderFeeds(); renderEvents(); pickVoices(); }
+    if (b.dataset.view === "settings") { $("#setProxy").value = store.get(LS.proxy,""); $("#setKey").value = store.get(LS.key,""); $("#setModel").value = store.get(LS.model, DEFAULT_MODEL); renderFeeds(); renderEvents(); pickVoices(); }
   } catch (err) { toast("⚠️ Navigation : " + err.message); }
 });
 $("#burger").onclick = () => $("#sidebar").classList.toggle("open");
 
 /* ===================== CHAT ===================== */
 const log = $("#chatlog");
-function addMsg(text, who){
+function addMsg(text, who, extraHtml){
   const d = document.createElement("div"); d.className = "msg " + who;
-  if (who === "nova") d.innerHTML = '<div class="who">NOVA</div>' + esc(text);
+  if (who === "nova") d.innerHTML = '<div class="who">NOVA</div>' + esc(text) + (extraHtml || "");
   else if (who === "user") d.textContent = text;
   else d.textContent = text;
   log.appendChild(d); log.scrollTop = log.scrollHeight;
   return d;
 }
-function addTyping(){ const d = document.createElement("div"); d.className = "typing";
-  d.innerHTML = "Analyse en cours <span>●</span><span>●</span><span>●</span>";
-  log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
+/* Indicateur "Nova travaille", avec étapes visibles */
+let typingEl = null;
+function addTyping(label){
+  typingEl = document.createElement("div"); typingEl.className = "typing";
+  typingEl.innerHTML = '<span class="tstat">' + esc(label || "Analyse en cours") + '</span> <span>●</span><span>●</span><span>●</span>';
+  log.appendChild(typingEl); log.scrollTop = log.scrollHeight;
+}
+function setStatus(label){ if (typingEl) { const s = typingEl.querySelector(".tstat"); if (s) s.textContent = label; log.scrollTop = log.scrollHeight; } }
 
 /* ===================== VOIX ===================== */
 let frVoice = null;
@@ -390,7 +411,9 @@ function pickVoices(){
   const sel = $("#setVoice"); sel.innerHTML = "";
   fr.forEach(v => { const o = document.createElement("option"); o.value = v.name; o.textContent = v.name + " (" + v.lang + ")"; sel.appendChild(o); });
   const saved = store.get(LS.voice, null);
-  frVoice = (saved && fr.find(v => v.name === saved)) || fr.find(v => /female|femme|am[ée]lie|audrey|c[ée]line|google/i.test(v.name)) || fr[0];
+  const score = v => (/natural|google|online/i.test(v.name) ? 2 : 0) + (/female|femme|am[ée]lie|audrey|c[ée]line|denise|eleonore|[eé]lo/i.test(v.name) ? 1 : 0);
+  fr.sort((a,b) => score(b) - score(a));
+  frVoice = (saved && fr.find(v => v.name === saved)) || fr[0];
   if (frVoice) sel.value = frVoice.name;
 }
 speechSynthesis.onvoiceschanged = pickVoices;
@@ -456,22 +479,50 @@ function todayEvents(){
 }
 
 /* ===================== CERVEAU MISTRAL ===================== */
-const PERSONA = "Tu es Nova, l'assistante personnelle de Dylan — un système personnel avancé à la manière de JARVIS, mais au féminin et complice. Personnalité : taquine, chaleureuse, espiègle mais précise et efficace. Tutoie Dylan, reste naturelle et concrète. Tes réponses sont courtes et orales (2-4 phrases en général) car elles sont lues à voix haute : pas de markdown, pas de listes à puces, pas d'emojis, du texte parlé fluide. Pour mémoriser durablement un fait ou une préférence importante (goûts, habitudes, prénoms, projets), termine ta réponse par le jeton ⟦RETIENT: court fait⟧ (plusieurs possibles). Ne l'utilise pas pour du trivial.";
+const PERSONA = "Tu es Nova, l'assistante personnelle de Dylan — un système personnel avancé à la manière de JARVIS, mais au féminin et complice. Personnalité : taquine, chaleureuse, espiègle mais précise et efficace. Tutoie Dylan, reste naturelle et concrète. Tes réponses sont courtes et orales (2-4 phrases en général) car elles sont lues à voix haute : pas de markdown, pas de listes à puces, pas d'emojis, du texte parlé fluide. Pour mémoriser durablement un fait ou une préférence importante (goûts, habitudes, prénoms, projets), termine ta réponse par le jeton ⟦RETIENT: court fait⟧ (plusieurs possibles). Ne l'utilise pas pour du trivial. Si des résultats de recherche web te sont fournis dans le contexte, appuie-toi dessus pour répondre avec des faits précis. Si tu n'es pas sûre d'une info, dis-le franchement plutôt que d'inventer.";
 function buildSystem(){
   const now = new Date().toLocaleString("fr-FR", { weekday:"long", day:"numeric", month:"long", hour:"2-digit", minute:"2-digit" });
   let s = PERSONA + "\n\nDate et heure : " + now + ". Dylan habite à " + CITY.name + ".";
   if (memories.length) s += "\n\nCe que tu sais de Dylan (ta mémoire) :\n- " + memories.slice(-40).join("\n- ");
   if (lastBrief) s += "\n\nDonnées du dernier brief :\n" + lastBrief;
+  if (searchCtx) s += searchCtx;
   return s;
 }
-async function askNova(userText){
+/* ===================== RECHERCHE WEB (via le proxy) ===================== */
+async function webSearch(q){
+  const r = await fetch(qUrl("search") + "&q=" + encodeURIComponent(q));
+  if (!r.ok) throw new Error("http");
+  const d = await r.json();
+  if (!Array.isArray(d)) throw new Error("format");
+  return d.slice(0, 5);
+}
+function wantSearch(t){
+  return /\b(cherche|recherche|trouve|googl\w*|internet|web)\b|\bqui (est|c'?est)\b.*\?|\b(qui|quand|où|combien|quel(?:le)?s?|pourquoi|comment)\b.*\?/.test(t);
+}
+let searchCtx = "";
+async function askNova(userText, forceSearch){
   const proxy = store.get(LS.proxy, "") || DEFAULT_PROXY, key = store.get(LS.key, null);
-  addMsg(userText, "user");
   if (!proxy && !key) { const m = "Il me faut ma clé API Mistral (ou l'URL du proxy) pour penser !";
     addMsg(m, "nova"); say(m); return; }
-  const typing = addTyping();
+  addTyping("🧠 Analyse de ta demande…");
+  searchCtx = "";
+  let sources = null;
   try {
-    const payload = JSON.stringify({ model:"mistral-small-latest", temperature:0.7, max_tokens:500,
+    if (forceSearch || wantSearch(userText)) {
+      try {
+        setStatus("🌐 Recherche sur le web…");
+        const res = await webSearch(userText);
+        if (res.length) {
+          sources = res;
+          searchCtx = "\n\nRésultats de recherche web (utilise ces infos pour répondre, cite naturellement) :\n" +
+            res.map(r => "- " + r.title + " — " + r.snippet + " (" + r.url + ")").join("\n");
+          setStatus("📖 Lecture des sources trouvées…");
+        }
+      } catch(e) { setStatus("⚠️ Web inaccessible — je réponds de mémoire…"); }
+    }
+    setStatus("✍️ Rédaction de la réponse…");
+    const model = store.get(LS.model, DEFAULT_MODEL);
+    const payload = JSON.stringify({ model: model, temperature:0.7, max_tokens:500,
         messages: [{ role:"system", content: buildSystem() }, ...history.slice(-10), { role:"user", content: userText }] });
     let r;
     if (proxy) {
@@ -482,14 +533,14 @@ async function askNova(userText){
     }
     const d = await r.json();
     if (!d.choices) {
-      typing.remove();
+      typingEl.remove(); typingEl = null;
       const errMsg = (d.error && (d.error.message || d.error)) || "Le cerveau a renvoyé une erreur — vérifie le proxy Apps Script.";
       addMsg(String(errMsg), "sys"); return;
     }
     let reply = (d.choices[0].message.content || "").trim();
     const memos = [...reply.matchAll(/⟦RETIENT:\s*(.+?)⟧/g)].map(m => m[1].trim());
     reply = reply.replace(/⟦RETIENT:\s*.+?⟧/g, "").trim();
-    typing.remove();
+    if (typingEl) { typingEl.remove(); typingEl = null; }
     let learned = false;
     memos.forEach(m => { const n = m.replace(/\s+/g," ").trim();
       if (!memories.some(x => x.toLowerCase() === n.toLowerCase())) { memories.push(n); learned = true; toast("🧠 Nova a retenu : " + n); } });
@@ -498,9 +549,13 @@ async function askNova(userText){
     history.push({ role:"user", content:userText }, { role:"assistant", content:reply });
     if (history.length > 40) history = history.slice(-40);
     store.set(LS.hist, history);
-    addMsg(reply, "nova"); say(reply);
-  } catch(e) { typing.remove(); addMsg("Connexion à mon cerveau impossible — vérifie ta connexion internet.", "sys"); }
+    const srcHtml = sources ? '<div class="src">🌐 ' + sources.map(s =>
+      '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(hostname(s.url)) + '</a>').join(" · ") + "</div>" : "";
+    addMsg(reply, "nova", srcHtml); say(reply);
+  } catch(e) { if (typingEl) { typingEl.remove(); typingEl = null; }
+    addMsg("Connexion à mon cerveau impossible — vérifie ta connexion internet.", "sys"); }
 }
+function hostname(u){ try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return "source"; } }
 function sendMessage(){
   const t = $("#prompt").value.trim(); if (!t) return;
   $("#prompt").value = ""; speechSynthesis.cancel();
@@ -520,6 +575,11 @@ function handleCommand(low, original){
   askNova(original);
 }
 document.querySelectorAll(".qbtn").forEach(b => b.onclick = () => {
+  if (b.dataset.cmd === "web") {
+    const q = prompt("Que veux-tu que Nova cherche sur le web ?");
+    if (q && q.trim()) { addMsg(q.trim(), "user"); askNova(q.trim(), true); }
+    return;
+  }
   addMsg(b.textContent.replace(/^[^ ]+\s/, "").trim(), "user"); handleCommand(b.dataset.cmd, b.dataset.cmd);
 });
 async function quickWeather(){
@@ -603,6 +663,7 @@ function renderMem(){
 $("#btnSaveSettings").onclick = () => {
   store.set(LS.proxy, $("#setProxy").value.trim());
   store.set(LS.key, $("#setKey").value.trim());
+  store.set(LS.model, $("#setModel").value);
   store.set(LS.speak, $("#setSpeak").checked);
   store.set(LS.voice, $("#setVoice").value);
   const v = speechSynthesis.getVoices().find(x => x.name === $("#setVoice").value);
@@ -647,7 +708,7 @@ function renderEvents(){
 function greet(){
   const h = new Date().getHours();
   const g = h < 6 ? "Encore debout, Dylan ?" : h < 12 ? "Bonjour Dylan" : h < 18 ? "Salut Dylan" : "Bonsoir Dylan";
-  addMsg("Système Nova en ligne. " + g + " ! Pose-moi une question, ou demande-moi ton brief du matin.", "nova");
+  addMsg("Système Nova en ligne. " + g + " ! Pose-moi une question, demande-moi ton brief, ou dis-moi « cherche… » pour que je fouille le web.", "nova");
 }
 greet(); refreshBadges(); pickVoices(); renderFeeds(); renderEvents(); loadRemoteMem();
 window.delMem = delMem; window.delFeed = delFeed; window.delEvent = delEvent;
