@@ -226,7 +226,7 @@
   </nav>
   <div class="sb-foot">
     <div><span class="brain-dot ko" id="brainDot"></span><span id="brainTxt">Cerveau hors ligne</span></div>
-    <div style="margin-top:6px">Sully-sur-Loire · Web Speech</div>
+    <div style="margin-top:6px">v2.2 · Sully-sur-Loire</div>
   </div>
 </aside>
 
@@ -368,6 +368,9 @@ const store = {
   set(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 };
 const CITY = { name:"Sully-sur-Loire", lat:47.7656, lon:2.0789 };
+/* Proxy intégré : zéro configuration sur tous les appareils.
+   Si tu changes le déploiement Apps Script, remplace juste cette URL (ou colle la nouvelle dans Réglages, qui a la priorité). */
+const DEFAULT_PROXY = "https://script.google.com/macros/s/AKfycbynSuEJYUoMJY8kbD94FXPNqVNvVLGBqBg9OXR-SI_8DAte7uzg2A7revXd3Owe7LKkjw/exec";
 const DEFAULT_FEEDS = [
   { name:"Le Monde", url:"https://www.lemonde.fr/rss/une.xml" },
   { name:"France Info", url:"https://www.francetvinfo.fr/titres.rss" },
@@ -385,9 +388,9 @@ function refreshBadges(){
   const evs = store.get(LS.events,[]).filter(e => new Date(e.date) >= new Date(new Date().toDateString()));
   $("#evBadge").style.display = evs.length ? "" : "none"; $("#evBadge").textContent = evs.length;
   $("#memBadge").style.display = memories.length ? "" : "none"; $("#memBadge").textContent = memories.length;
-  const ok = !!(store.get(LS.key, null) || store.get(LS.proxy, ""));
+  const ok = !!(store.get(LS.key, null) || store.get(LS.proxy, "") || DEFAULT_PROXY);
   $("#brainDot").className = "brain-dot " + (ok?"ok":"ko");
-  $("#brainTxt").textContent = ok ? (store.get(LS.proxy,"") ? "Cerveau en ligne (proxy)" : "Cerveau en ligne") : "Cerveau hors ligne";
+  $("#brainTxt").textContent = ok ? (store.get(LS.proxy,"") ? "Cerveau en ligne (proxy)" : "Cerveau en ligne (proxy intégré)") : "Cerveau hors ligne";
 }
 function tickClock(){ $("#clock") && 0; }
 setInterval(() => {}, 600000);
@@ -509,7 +512,8 @@ function buildSystem(){
   return s;
 }
 async function askNova(userText){
-  const proxy = store.get(LS.proxy, ""), key = store.get(LS.key, null);
+  const proxy = store.get(LS.proxy, "") || DEFAULT_PROXY, key = store.get(LS.key, null);
+  const customProxy = !!store.get(LS.proxy, "");
   addMsg(userText, "user");
   if (!proxy && !key) { const m = "Il me faut ma clé API Mistral (ou l'URL du proxy Apps Script — voir Réglages) pour penser !";
     addMsg(m, "nova"); say(m); return; }
@@ -528,6 +532,11 @@ async function askNova(userText){
     if (r.status === 401) { typing.remove(); addMsg("Clé API invalide — vérifie les Réglages.", "sys"); return; }
     if (r.status === 429) { typing.remove(); addMsg("Trop de requêtes, petite pause…", "sys"); return; }
     const d = await r.json();
+    if (!d.choices) {
+      typing.remove();
+      const errMsg = (d.error && (d.error.message || d.error)) || "Le cerveau a renvoyé une erreur — vérifie la clé dans le proxy Apps Script.";
+      addMsg(String(errMsg), "sys"); return;
+    }
     let reply = (d.choices[0].message.content || "").trim();
     const memos = [...reply.matchAll(/⟦RETIENT:\s*(.+?)⟧/g)].map(m => m[1].trim());
     reply = reply.replace(/⟦RETIENT:\s*.+?⟧/g, "").trim();
@@ -680,7 +689,7 @@ function greet(){
   const h = new Date().getHours();
   const g = h < 6 ? "Encore debout, Dylan ?" : h < 12 ? "Bonjour Dylan !" : h < 18 ? "Salut Dylan !" : "Bonsoir Dylan !";
   addMsg("Système Nova en ligne. " + g + " Pose-moi une question, ou demande-moi ton brief du matin.", "nova");
-  if (!store.get(LS.key, null)) addMsg("Astuce : ajoute ta clé API Mistral dans Réglages pour activer ma discussion libre. La météo, les actus et le planning marchent déjà sans clé.", "sys");
+  if (!store.get(LS.key, null) && !store.get(LS.proxy, "") && !DEFAULT_PROXY) addMsg("Astuce : ajoute ta clé API Mistral dans Réglages pour activer ma discussion libre. La météo, les actus et le planning marchent déjà sans clé.", "sys");
   if (memories.length) addMsg("(Mémoire chargée : " + memories.length + " souvenir" + (memories.length>1?"s":"") + " — voir Mémoire)", "sys");
 }
 greet(); refreshBadges(); pickVoices(); renderEvents(); renderFeeds();
