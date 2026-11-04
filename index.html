@@ -265,6 +265,8 @@
             <div class="sub">Clique sur « Générer le brief » pour charger les données.</div></div>
           <div class="card" id="cardAgenda"><h3>📅 Planning du jour</h3>
             <div class="sub">Aucun événement chargé.</div></div>
+          <div class="card" id="cardGAgenda"><h3>🗓️ Google Agenda</h3>
+            <div class="sub">Génère le brief pour charger ton agenda.</div></div>
           <div class="card" id="cardNews"><h3>📰 À la une</h3>
             <div class="sub">Clique sur « Générer le brief » pour charger les flux.</div></div>
         </div>
@@ -371,6 +373,33 @@ const CITY = { name:"Sully-sur-Loire", lat:47.7656, lon:2.0789 };
 /* Proxy intégré : zéro configuration sur tous les appareils.
    Si tu changes le déploiement Apps Script, remplace juste cette URL (ou colle la nouvelle dans Réglages, qui a la priorité). */
 const DEFAULT_PROXY = "https://script.google.com/macros/s/AKfycbynSuEJYUoMJY8kbD94FXPNqVNvVLGBqBg9OXR-SI_8DAte7uzg2A7revXd3Owe7LKkjw/exec";
+
+/* ===================== SYNC (V3) ===================== */
+function proxyUrl(){ return store.get(LS.proxy, "") || DEFAULT_PROXY; }
+function qUrl(action){ return proxyUrl() + (proxyUrl().includes("?") ? "&" : "?") + "action=" + action; }
+/* Mémoire synchronisée : chargement + fusion au démarrage */
+async function loadRemoteMem(){
+  try {
+    const r = await fetch(qUrl("mem")); if (!r.ok) return;
+    const mems = await r.json(); if (!Array.isArray(mems)) return;
+    let changed = false;
+    mems.forEach(m => { if (typeof m === "string" && !memories.some(x => x.toLowerCase() === m.toLowerCase())) { memories.push(m); changed = true; } });
+    if (changed) { memories = memories.slice(-200); store.set(LS.mem, memories); renderMem(); refreshBadges(); }
+  } catch(e) { /* hors ligne : on garde la mémoire locale */ }
+}
+/* Envoi de la mémoire complète vers le proxy (mode replace) */
+async function pushMem(){
+  try {
+    await fetch(qUrl("mem"), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ memories: memories, mode: "replace" }) });
+  } catch(e) {}
+}
+/* Google Agenda du jour via le proxy */
+async function getAgenda(){
+  const r = await fetch(qUrl("agenda")); if (!r.ok) throw new Error("http");
+  const d = await r.json(); if (!Array.isArray(d)) throw new Error("format");
+  return d;
+}
 const DEFAULT_FEEDS = [
   { name:"Le Monde", url:"https://www.lemonde.fr/rss/une.xml" },
   { name:"France Info", url:"https://www.francetvinfo.fr/titres.rss" },
@@ -543,7 +572,7 @@ async function askNova(userText){
     typing.remove();
     memos.forEach(m => { const n = m.replace(/\s+/g," ").trim();
       if (!memories.some(x => x.toLowerCase() === n.toLowerCase())) { memories.push(n); toast("🧠 Nova a retenu : " + n); } });
-    store.set(LS.mem, memories); refreshBadges();
+    store.set(LS.mem, memories); refreshBadges(); pushMem();
     history.push({ role:"user", content:userText }, { role:"assistant", content:reply }); store.set(LS.hist, history);
     addMsg(reply, "nova"); say(reply);
   } catch(e) { typing.remove(); addMsg("Connexion à mon cerveau impossible — vérifie ta connexion internet.", "sys"); }
@@ -566,20 +595,22 @@ async function quickWeather(){
 }
 
 /* ===================== BRIEF ===================== */
-function composeBrief(w, news, evs){
+function composeBrief(w, news, evs, agenda){
   let txt = "Bonjour Dylan ! Nous sommes le " + new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}) + ". ";
   if (w) txt += "À " + CITY.name + ", " + w.temp + " degrés actuellement, journée " + w.desc + ", entre " + w.min + " et " + w.max + ", risque de pluie " + w.rain + " pour cent. ";
   if (evs.length) txt += "Au programme aujourd'hui : " + evs.map(e => e.title + " à " + new Date(e.date).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})).join(", ") + ". ";
-  else txt += "Rien au planning aujourd'hui. ";
+  else txt += "Rien au planning Nova. ";
+  if (agenda && agenda.length) txt += "Dans ton Google Agenda : " + agenda.map(a => a.title + " à " + a.start).join(", ") + ". ";
   if (news.length) txt += "Dans l'actualité : " + news.slice(0,5).map(n => n.title).join(" ; ") + ". Passe une bonne journée !";
   return txt;
 }
 async function morningBrief(silent){
   const btn = $("#btnRefreshBrief"); if (btn) { btn.disabled = true; btn.textContent = "Chargement…"; }
-  const [w, news] = await Promise.all([ getWeather().catch(()=>null), getNews().catch(()=>[]) ]);
+  const [w, news, agenda] = await Promise.all([
+    getWeather().catch(()=>null), getNews().catch(()=>[]), getAgenda().catch(()=>null) ]);
   const evs = todayEvents();
   briefData = { w, news, evs };
-  const txt = composeBrief(w, news, evs);
+  const txt = composeBrief(w, news, evs, agenda);
   lastBrief = txt;
   $("#cardWeather").innerHTML = "<h3>🌤️ Météo — Sully-sur-Loire</h3>" + (w ?
     '<div class="big">' + w.temp + '°C</div><div class="sub">' + (w.desc.charAt(0).toUpperCase()+w.desc.slice(1)) +
@@ -592,6 +623,12 @@ async function morningBrief(silent){
   $("#cardNews").innerHTML = "<h3>📰 À la une</h3>" + (news.length ?
     news.slice(0,6).map(n => '<div class="news-item"><span class="src">' + esc(n.feed) + "</span><br>" + esc(n.title) + "</div>").join("") :
     '<div class="sub">Flux indisponibles.</div>');
+  $("#cardGAgenda").innerHTML = "<h3>🗓️ Google Agenda</h3>" +
+    (agenda === null
+      ? '<div class="sub">Agenda inaccessible — autorise l\'agenda dans le proxy Apps Script (voir README).</div>'
+      : agenda.length
+        ? agenda.map(a => '<div class="krow"><span class="k">' + esc(a.title) + (a.location ? " · " + esc(a.location) : "") + '</span><span class="v">' + esc(a.start) + "</span></div>").join("")
+        : '<div class="sub">Aucun événement Google Agenda aujourd\'hui.</div>');
   renderNewsCache();
   if (btn) { btn.disabled = false; btn.textContent = "↻ Générer le brief"; }
   if (!silent) { addMsg("☀️ " + txt, "nova"); say(txt); }
@@ -640,7 +677,7 @@ function renderEvents(){
 /* ===================== MÉMOIRE ===================== */
 $("#btnAddMemo").onclick = () => {
   const m = prompt("Quoi retenir ?"); if (!m || !m.trim()) return;
-  memories.push(m.trim()); store.set(LS.mem, memories); renderMem(); refreshBadges();
+  memories.push(m.trim()); store.set(LS.mem, memories); renderMem(); refreshBadges(); pushMem();
 };
 $("#btnExportMemo").onclick = () => {
   const blob = new Blob([JSON.stringify(memories, null, 2)], { type: "application/json" });
@@ -648,10 +685,10 @@ $("#btnExportMemo").onclick = () => {
   a.download = "nova-memoire.json"; a.click();
 };
 $("#btnClearMemo").onclick = () => {
-  if (!confirm("Nova oubliera tout. Confirmer ?")) return;
-  memories = []; store.set(LS.mem, memories); renderMem(); refreshBadges();
+  if (!confirm("Nova oubliera tout (y compris la mémoire synchronisée). Confirmer ?")) return;
+  memories = []; store.set(LS.mem, memories); renderMem(); refreshBadges(); pushMem();
 };
-function delMem(i){ memories.splice(i,1); store.set(LS.mem, memories); renderMem(); refreshBadges(); }
+function delMem(i){ memories.splice(i,1); store.set(LS.mem, memories); renderMem(); refreshBadges(); pushMem(); }
 function renderMem(){
   $("#memBox").innerHTML = memories.length ? memories.map((m,i) =>
     '<div class="memo"><span>' + esc(m) + '</span><button class="del" onclick="delMem(' + i + ')">🗑</button></div>').join("")
@@ -692,7 +729,7 @@ function greet(){
   if (!store.get(LS.key, null) && !store.get(LS.proxy, "") && !DEFAULT_PROXY) addMsg("Astuce : ajoute ta clé API Mistral dans Réglages pour activer ma discussion libre. La météo, les actus et le planning marchent déjà sans clé.", "sys");
   if (memories.length) addMsg("(Mémoire chargée : " + memories.length + " souvenir" + (memories.length>1?"s":"") + " — voir Mémoire)", "sys");
 }
-greet(); refreshBadges(); pickVoices(); renderEvents(); renderFeeds();
+greet(); refreshBadges(); pickVoices(); renderEvents(); renderFeeds(); loadRemoteMem();
 window.delEvent = delEvent; window.delMem = delMem; window.delFeed = delFeed;
 </script>
 </body>

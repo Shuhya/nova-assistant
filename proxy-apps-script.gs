@@ -1,65 +1,130 @@
 /**
- * Nova — Proxy Apps Script vers l'API Mistral (v2)
+ * Nova — Proxy Apps Script (v3)
+ * Rôles : relais vers l'API Mistral + mémoire synchronisée + Google Agenda.
  * La clé API vit dans les Script Properties : jamais dans le code ni dans le repo.
- * Nouveauté v2 : limite anti-abus — 300 appels par jour maximum (protection du quota).
  *
- * INSTALLATION :
- * 1. script.google.com → projet "Nova Proxy" → colle tout ce fichier dans Code.gs
- * 2. En bas du fichier, décommente setupCle(), mets ta clé à la place de TA_CLE_ICI,
- *    exécute setupCle une fois, puis recommente/supprime la fonction.
- * 3. Déployer → Gérer les déploiements → ✏️ → "Nouvelle version" → Déployer
- *    (l'URL reste la même). Nouveau déploiement : nouvelle URL → mettre à jour
- *    DEFAULT_PROXY dans index.html ou l'URL dans Nova ▸ Réglages.
+ * MISE À JOUR depuis la v2 :
+ * 1. Remplace tout Code.gs par ce fichier.
+ * 2. Dans l'éditeur, sélectionne et exécute UNE FOIS la fonction "autoriser()"
+ *    → Google demande l'autorisation d'accéder ton agenda → Accepter.
+ *    (C'est nécessaire pour que ?action=agenda fonctionne.)
+ * 3. Déployer ▸ Gérer les déploiements ▸ ✏️ ▸ Nouvelle version ▸ Déployer (URL inchangée).
+ *
+ * Endpoints (appelés par Nova) :
+ *   GET  ?action=mem        → renvoie la mémoire synchronisée (JSON)
+ *   POST ?action=mem        → { memories: [...], mode: "replace" } → enregistre, renvoie la liste
+ *   GET  ?action=agenda     → événements Google Agenda du jour (JSON)
+ *   GET  (sans action)      → test : "Nova proxy en ligne (v3)"
+ *   POST (sans action)      → relais chat vers l'API Mistral (limite 300 appels/jour)
  */
 
 var MAX_APPELS_PAR_JOUR = 300;
+var MAX_MEMOIRES = 200;
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+function textOut(txt) {
+  return ContentService.createTextOutput(txt).setMimeType(ContentService.MimeType.TEXT);
+}
+
+/* ============ MÉMOIRE SYNCHRONISÉE ============ */
+function getMemory() {
+  var raw = PropertiesService.getScriptProperties().getProperty('NOVA_MEMOIRE');
+  var mems = [];
+  if (raw) { try { mems = JSON.parse(raw); } catch (e) { mems = []; } }
+  if (!Array.isArray(mems)) mems = [];
+  return mems.filter(function (m) { return typeof m === 'string' && m.trim(); });
+}
+function setMemory(list) {
+  if (!Array.isArray(list)) list = [];
+  list = list.filter(function (m) { return typeof m === 'string' && m.trim(); })
+             .slice(-MAX_MEMOIRES);
+  PropertiesService.getScriptProperties().setProperty('NOVA_MEMOIRE', JSON.stringify(list));
+  return list;
+}
+function mergeMemory(list) {
+  if (!Array.isArray(list)) return getMemory();
+  var mems = getMemory();
+  list.forEach(function (m) {
+    if (typeof m === 'string' && m.trim() &&
+        !mems.some(function (x) { return x.toLowerCase() === m.trim().toLowerCase(); })) {
+      mems.push(m.trim());
+    }
+  });
+  return setMemory(mems);
+}
+
+/* ============ GOOGLE AGENDA ============ */
+function getAgenda() {
+  var cal = CalendarApp.getDefaultCalendar();
+  var evts = cal.getEventsForDay(new Date());
+  return evts.map(function (e) {
+    return {
+      title: e.getTitle() || '(sans titre)',
+      start: Utilities.formatDate(e.getStartTime(), 'Europe/Paris', 'HH:mm'),
+      end: Utilities.formatDate(e.getEndTime(), 'Europe/Paris', 'HH:mm'),
+      location: e.getLocation() || ''
+    };
+  });
+}
+
+/* À exécuter UNE FOIS dans l'éditeur pour autoriser l'accès agenda : */
+function autoriser() {
+  CalendarApp.getDefaultCalendar().getEventsForDay(new Date());
+}
+
+/* ============ ROUTAGE ============ */
+function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) || '';
+  try {
+    if (action === 'mem') return jsonOut(getMemory());
+    if (action === 'agenda') return jsonOut(getAgenda());
+  } catch (err) {
+    return jsonOut({ error: String(err) });
+  }
+  return textOut('Nova proxy en ligne (v3)');
+}
 
 function doPost(e) {
+  var action = (e && e.parameter && e.parameter.action) || '';
   try {
-    // --- Limite anti-abus : 300 appels/jour ---
+    /* --- Mémoire --- */
+    if (action === 'mem') {
+      var body = {};
+      try { body = JSON.parse(e.postData.contents); } catch (err) { body = {}; }
+      if (body.mode === 'replace') return jsonOut(setMemory(body.memories || []));
+      return jsonOut(mergeMemory(body.memories || []));
+    }
+
+    /* --- Chat Mistral (limite anti-abus) --- */
     var props = PropertiesService.getScriptProperties();
     var today = Utilities.formatDate(new Date(), 'Europe/Paris', 'yyyy-MM-dd');
     var cache = CacheService.getScriptCache();
     var compte = cache.get('compte_' + today);
     var n = compte ? parseInt(compte, 10) : 0;
     if (n >= MAX_APPELS_PAR_JOUR) {
-      return ContentService.createTextOutput(JSON.stringify({
-        error: 'Limite de ' + MAX_APPELS_PAR_JOUR + ' appels/jour atteinte sur ce proxy.'
-      })).setMimeType(ContentService.MimeType.JSON);
+      return jsonOut({ error: 'Limite de ' + MAX_APPELS_PAR_JOUR + ' appels/jour atteinte sur ce proxy.' });
     }
     cache.put('compte_' + today, String(n + 1), 86400);
 
-    // --- Appel Mistral ---
     var key = props.getProperty('MISTRAL_KEY');
     if (!key) throw new Error('Clé MISTRAL_KEY absente : exécute setupCle() une fois.');
-    var payload = e.postData.contents;
-
     var resp = UrlFetchApp.fetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'post',
       contentType: 'application/json',
       headers: { 'Authorization': 'Bearer ' + key },
-      payload: payload,
+      payload: e.postData.contents,
       muteHttpExceptions: true
     });
-
-    return ContentService
-      .createTextOutput(resp.getContentText())
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(resp.getContentText()).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: String(err) }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonOut({ error: String(err) });
   }
 }
 
-// Test navigateur : doit afficher "Nova proxy en ligne"
-function doGet() {
-  return ContentService
-    .createTextOutput('Nova proxy en ligne (v2, limite ' + MAX_APPELS_PAR_JOUR + ' appels/jour)')
-    .setMimeType(ContentService.MimeType.TEXT);
+/* À décommenter, remplir et exécuter UNE FOIS si la clé n'est pas encore enregistrée :
+function setupCle() {
+  PropertiesService.getScriptProperties().setProperty('MISTRAL_KEY', 'TA_CLE_ICI');
 }
-
-// À décommenter, remplir et exécuter UNE FOIS, puis re-supprimer :
-// function setupCle() {
-//   PropertiesService.getScriptProperties().setProperty('MISTRAL_KEY', 'TA_CLE_ICI');
-// }
+*/
