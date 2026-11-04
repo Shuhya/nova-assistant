@@ -320,9 +320,14 @@
 
         <div class="form-card" style="margin-bottom:20px">
           <div class="field">
-            <label>Clé API Mistral</label>
+            <label>URL du proxy Apps Script (recommandé)</label>
+            <input id="setProxy" type="url" placeholder="https://script.google.com/macros/s/…/exec" />
+            <div class="hint">Ta clé Mistral est stockée côté Google (sécurisée) : tous tes appareils partagent le même cerveau, plus rien à rentrer. Voir README.</div>
+          </div>
+          <div class="field">
+            <label>Ou clé API Mistral directe (local à cet appareil)</label>
             <input id="setKey" type="password" placeholder="Colle ta clé (console.mistral.ai)" />
-            <div class="hint">Gratuite sur <b>console.mistral.ai</b> → API Keys. Stockée uniquement dans ce navigateur (localStorage), jamais envoyée ailleurs qu'à Mistral.</div>
+            <div class="hint">Stockée uniquement dans ce navigateur. Le proxy est prioritaire s'il est rempli.</div>
           </div>
           <div class="field">
             <label>Voix de Nova</label>
@@ -356,7 +361,7 @@
 
 <script>
 /* ===================== ÉTAT ===================== */
-const LS = { key:"nova.apikey", feeds:"nova.feeds", events:"nova.events", mem:"nova.memories",
+const LS = { key:"nova.apikey", proxy:"nova.proxy", feeds:"nova.feeds", events:"nova.events", mem:"nova.memories",
   hist:"nova.history", speak:"nova.speak", voice:"nova.voice" };
 const store = {
   get(k,d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; } },
@@ -380,9 +385,9 @@ function refreshBadges(){
   const evs = store.get(LS.events,[]).filter(e => new Date(e.date) >= new Date(new Date().toDateString()));
   $("#evBadge").style.display = evs.length ? "" : "none"; $("#evBadge").textContent = evs.length;
   $("#memBadge").style.display = memories.length ? "" : "none"; $("#memBadge").textContent = memories.length;
-  const ok = !!store.get(LS.key, null);
+  const ok = !!(store.get(LS.key, null) || store.get(LS.proxy, ""));
   $("#brainDot").className = "brain-dot " + (ok?"ok":"ko");
-  $("#brainTxt").textContent = ok ? "Cerveau en ligne" : "Cerveau hors ligne";
+  $("#brainTxt").textContent = ok ? (store.get(LS.proxy,"") ? "Cerveau en ligne (proxy)" : "Cerveau en ligne") : "Cerveau hors ligne";
 }
 function tickClock(){ $("#clock") && 0; }
 setInterval(() => {}, 600000);
@@ -401,7 +406,7 @@ document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => {
   if (b.dataset.view === "news") renderNewsCache();
   if (b.dataset.view === "planning") renderEvents();
   if (b.dataset.view === "memory") renderMem();
-  if (b.dataset.view === "settings") { $("#setKey").value = store.get(LS.key,""); renderFeeds(); pickVoices(); }
+  if (b.dataset.view === "settings") { $("#setKey").value = store.get(LS.key,""); $("#setProxy").value = store.get(LS.proxy,""); renderFeeds(); pickVoices(); }
 });
 $("#burger").onclick = () => $("#sidebar").classList.toggle("open");
 $("#btnNewChat").onclick = () => { history = []; store.set(LS.hist, history); $("#chatlog").innerHTML = ""; greet(); toast("Nouvelle discussion initialisée"); };
@@ -504,17 +509,22 @@ function buildSystem(){
   return s;
 }
 async function askNova(userText){
-  const key = store.get(LS.key, null);
+  const proxy = store.get(LS.proxy, ""), key = store.get(LS.key, null);
   addMsg(userText, "user");
-  if (!key) { const m = "Il me faut ma clé API Mistral pour penser ! Ouvre Réglages et colle ta clé (gratuite sur console.mistral.ai).";
+  if (!proxy && !key) { const m = "Il me faut ma clé API Mistral (ou l'URL du proxy Apps Script — voir Réglages) pour penser !";
     addMsg(m, "nova"); say(m); return; }
   const typing = addTyping();
   try {
-    const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST", headers: { "Content-Type":"application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model:"mistral-small-latest", temperature:0.7, max_tokens:500,
-        messages: [{ role:"system", content: buildSystem() }, ...history.slice(-10), { role:"user", content: userText }] })
-    });
+    const payload = JSON.stringify({ model:"mistral-small-latest", temperature:0.7, max_tokens:500,
+        messages: [{ role:"system", content: buildSystem() }, ...history.slice(-10), { role:"user", content: userText }] });
+    let r;
+    if (proxy) {
+      r = await fetch(proxy, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: payload });
+    } else {
+      r = await fetch("https://api.mistral.ai/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type":"application/json", "Authorization": "Bearer " + key },
+        body: payload });
+    }
     if (r.status === 401) { typing.remove(); addMsg("Clé API invalide — vérifie les Réglages.", "sys"); return; }
     if (r.status === 429) { typing.remove(); addMsg("Trop de requêtes, petite pause…", "sys"); return; }
     const d = await r.json();
@@ -641,6 +651,7 @@ function renderMem(){
 
 /* ===================== RÉGLAGES ===================== */
 $("#btnSaveSettings").onclick = () => {
+  store.set(LS.proxy, $("#setProxy").value.trim());
   store.set(LS.key, $("#setKey").value.trim());
   store.set(LS.speak, $("#setSpeak").checked);
   store.set(LS.voice, $("#setVoice").value);
