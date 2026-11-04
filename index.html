@@ -1,0 +1,679 @@
+
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Nova — Assistant personnel</title>
+<style>
+  :root {
+    --bg: #04070f; --bg2: #070c18; --surface: rgba(13, 21, 40, .85); --surface2: rgba(9, 15, 30, .9);
+    --line: rgba(0, 212, 255, .18); --line2: rgba(0, 212, 255, .08);
+    --text: #d7e9ff; --muted: #5f7fa3; --muted2: #3d5a80;
+    --cyan: #00d4ff; --cyan-soft: rgba(0, 212, 255, .12); --cyan-glow: rgba(0, 212, 255, .45);
+    --gold: #ffb300; --danger: #ff4d6d; --ok: #00ffa3;
+    --radius: 12px; --shadow: 0 0 24px rgba(0, 212, 255, .06);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); display: flex; overflow: hidden; position: relative; }
+  /* fond HUD */
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(ellipse 60% 40% at 20% 0%, rgba(0,212,255,.07), transparent 60%),
+      radial-gradient(ellipse 50% 35% at 90% 100%, rgba(0,140,255,.06), transparent 60%),
+      linear-gradient(rgba(0,212,255,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,.025) 1px, transparent 1px);
+    background-size: auto, auto, 44px 44px, 44px 44px; }
+  #sidebar, #main { position: relative; z-index: 1; }
+
+  /* ===== Sidebar ===== */
+  #sidebar { width: 264px; background: var(--surface2); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; flex-shrink: 0; backdrop-filter: blur(10px); }
+  .sb-top { padding: 16px 16px 12px; display: flex; align-items: center; gap: 12px; }
+  .logo { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--cyan); flex-shrink: 0;
+    background: radial-gradient(circle at 35% 35%, #7ff3ff, #00a8d8 55%, #004a66 100%);
+    display: flex; align-items: center; justify-content: center; font-size: 17px; color: #001320; font-weight: 900;
+    box-shadow: 0 0 18px var(--cyan-glow), inset 0 0 12px rgba(255,255,255,.35); }
+  .sb-top h1 { font-size: 17px; font-weight: 600; letter-spacing: 3px; color: var(--cyan);
+    text-shadow: 0 0 12px var(--cyan-glow); }
+  .sb-top .sub { font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
+  .sb-new { margin: 4px 12px 14px; padding: 11px 18px; border: 1px solid var(--line); border-radius: 100px;
+    background: var(--cyan-soft); color: var(--cyan); font-size: 12.5px; font-weight: 700; letter-spacing: 1px;
+    cursor: pointer; display: flex; align-items: center; gap: 9px; text-transform: uppercase;
+    transition: .15s; backdrop-filter: blur(4px); }
+  .sb-new:hover { background: rgba(0,212,255,.22); box-shadow: 0 0 16px var(--cyan-glow); }
+  nav { flex: 1; padding: 0 8px; overflow-y: auto; }
+  .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 0 100px 100px 0;
+    font-size: 13px; color: var(--muted); cursor: pointer; border: none; background: none; width: 100%;
+    text-align: left; font-family: inherit; letter-spacing: .4px; transition: .15s; }
+  .nav-item:hover { background: var(--cyan-soft); color: var(--text); }
+  .nav-item.active { background: var(--cyan-soft); color: var(--cyan); font-weight: 600;
+    border-right: 2px solid var(--cyan); text-shadow: 0 0 10px var(--cyan-glow); }
+  .nav-item .ico { width: 20px; text-align: center; }
+  .nav-item .badge { margin-left: auto; background: var(--danger); color: #fff; font-size: 10px;
+    border-radius: 10px; padding: 1px 7px; box-shadow: 0 0 10px rgba(255,77,109,.5); }
+  .sb-foot { padding: 12px 16px; border-top: 1px solid var(--line2); font-size: 10.5px; color: var(--muted);
+    letter-spacing: 1px; text-transform: uppercase; }
+  .brain-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+  .brain-dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .brain-dot.ko { background: var(--danger); box-shadow: 0 0 8px var(--danger); animation: blinkd 1.4s infinite; }
+  @keyframes blinkd { 50%{opacity:.35} }
+
+  /* ===== Main ===== */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar { height: 60px; background: var(--surface2); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px; padding: 0 22px; flex-shrink: 0; backdrop-filter: blur(10px); }
+  #burger { display: none; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--cyan); }
+  .topbar h2 { font-size: 13px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--cyan); }
+  .topbar .spacer { flex: 1; }
+  .tbtn { background: var(--cyan-soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px;
+    font-size: 12px; color: var(--text); cursor: pointer; font-family: inherit; display: flex;
+    align-items: center; gap: 7px; letter-spacing: .5px; transition: .15s; }
+  .tbtn:hover { border-color: var(--cyan); box-shadow: 0 0 14px var(--cyan-glow); }
+  .tbtn.primary { background: linear-gradient(135deg, rgba(0,180,230,.35), rgba(0,212,255,.2));
+    border-color: var(--cyan); color: var(--cyan); font-weight: 700; }
+  #content { flex: 1; overflow-y: auto; position: relative; }
+
+  /* ===== Vue Discussion ===== */
+  #view-chat { display: flex; flex-direction: column; height: 100%; }
+  #chatlog { flex: 1; overflow-y: auto; padding: 24px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: min(72%, 560px); font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: linear-gradient(135deg, rgba(0,150,220,.25), rgba(0,90,160,.25));
+    border: 1px solid rgba(0,180,255,.35); padding: 10px 16px; border-radius: 18px 18px 4px 18px;
+    color: #eaf7ff; }
+  .msg.nova { align-self: flex-start; background: var(--surface); padding: 12px 16px;
+    border-radius: 4px 18px 18px 18px; border: 1px solid var(--line);
+    box-shadow: var(--shadow); backdrop-filter: blur(8px); }
+  .msg.nova .who { font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; margin-bottom: 4px;
+    text-shadow: 0 0 8px var(--cyan-glow); }
+  .msg.sys { align-self: center; font-size: 11.5px; color: var(--muted); background: var(--surface2);
+    border: 1px solid var(--line2); border-radius: 100px; padding: 5px 14px; letter-spacing: .5px; }
+  .typing { align-self: flex-start; color: var(--cyan); font-size: 12.5px; padding: 4px 8px; letter-spacing: 1px; }
+  .typing span { animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: .2s; } .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,100%{opacity:.15} 50%{opacity:1} }
+  .composer { padding: 12px 18px 20px; background: linear-gradient(to top, var(--bg) 70%, transparent); }
+  .composer-bar { display: flex; gap: 10px; align-items: center; max-width: 780px; margin: 0 auto;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 26px; padding: 8px 10px;
+    box-shadow: var(--shadow); backdrop-filter: blur(8px); transition: .15s; }
+  .composer-bar:focus-within { border-color: var(--cyan); box-shadow: 0 0 20px var(--cyan-glow); }
+  #prompt { flex: 1; border: none; outline: none; font-size: 14.5px; background: none; color: var(--text);
+    padding: 6px 8px; font-family: inherit; }
+  #prompt::placeholder { color: var(--muted2); }
+  .cbtn { border-radius: 50%; border: none; cursor: pointer; font-size: 17px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 42px; height: 42px;
+    background: none; color: inherit; }
+  /* Arc reactor mic */
+  #mic { position: relative; background: radial-gradient(circle at 35% 35%, #8ff4ff, #00b4e0 55%, #003450 100%); color: #00131f;
+    border: 1px solid var(--cyan); box-shadow: 0 0 16px var(--cyan-glow), inset 0 0 10px rgba(255,255,255,.4); transition: .2s; }
+  #mic:hover { box-shadow: 0 0 26px var(--cyan-glow), inset 0 0 14px rgba(255,255,255,.55); }
+  #mic.listening { background: radial-gradient(circle at 35% 35%, #ff9fb0, #e02350 55%, #4a0020 100%);
+    border-color: var(--danger); box-shadow: 0 0 30px rgba(255,77,109,.7); animation: pulse 1.1s infinite; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.09)} }
+  #send { background: var(--cyan-soft); color: var(--cyan); border: 1px solid var(--line); }
+  #send:hover { box-shadow: 0 0 14px var(--cyan-glow); border-color: var(--cyan); }
+
+  /* ===== Vues dashboard ===== */
+  .page { max-width: 880px; margin: 0 auto; padding: 26px 22px 60px; }
+  .page-head { margin-bottom: 20px; }
+  .page-head h2 { font-size: 18px; font-weight: 600; letter-spacing: 1.5px; color: var(--cyan);
+    text-shadow: 0 0 12px var(--cyan-glow); text-transform: uppercase; }
+  .page-head p { font-size: 12.5px; color: var(--muted); margin-top: 5px; letter-spacing: .4px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 18px; backdrop-filter: blur(8px); position: relative; overflow: hidden; }
+  .card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent); opacity: .7; }
+  .card h3 { font-size: 10.5px; font-weight: 700; color: var(--cyan); display: flex; align-items: center;
+    gap: 8px; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 1.8px;
+    text-shadow: 0 0 8px var(--cyan-glow); }
+  .big { font-size: 34px; font-weight: 500; color: #eaf7ff; text-shadow: 0 0 16px var(--cyan-glow); }
+  .sub { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.7; letter-spacing: .3px; }
+  .krow { display: flex; justify-content: space-between; font-size: 13px; padding: 7px 0;
+    border-bottom: 1px solid var(--line2); }
+  .krow:last-child { border-bottom: none; }
+  .krow .k { color: var(--muted); } .krow .v { font-weight: 500; color: #eaf7ff; }
+  .news-item { padding: 10px 0; border-bottom: 1px solid var(--line2); font-size: 13.5px; line-height: 1.5; }
+  .news-item:last-child { border-bottom: none; }
+  .news-item .src { font-size: 10px; color: var(--gold); font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .news-item a { color: var(--text); text-decoration: none; } .news-item a:hover { color: var(--cyan); text-shadow: 0 0 8px var(--cyan-glow); }
+  .ev-item { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line2); align-items: center; }
+  .ev-item:last-child { border-bottom: none; }
+  .ev-date { background: var(--cyan-soft); color: var(--cyan); border: 1px solid var(--line); border-radius: 10px;
+    text-align: center; padding: 8px 12px; font-size: 11px; font-weight: 700; flex-shrink: 0; letter-spacing: 1px; text-transform: uppercase; }
+  .ev-date .d { font-size: 17px; display: block; color: #eaf7ff; }
+  .ev-body { flex: 1; } .ev-body .t { font-size: 14px; font-weight: 500; }
+  .ev-body .h { font-size: 11.5px; color: var(--muted); margin-top: 2px; letter-spacing: .5px; text-transform: uppercase; }
+  .del { background: none; border: none; color: var(--muted2); cursor: pointer; font-size: 15px; padding: 4px; }
+  .del:hover { color: var(--danger); text-shadow: 0 0 8px rgba(255,77,109,.6); }
+  .memo { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    background: var(--cyan-soft); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+    font-size: 13px; margin-bottom: 8px; }
+  .memo::before { content: "◈"; color: var(--cyan); margin-right: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 100px; padding: 6px 12px; font-size: 12.5px; margin: 3px; }
+  .chip button { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 12px; }
+
+  /* ===== Formulaires ===== */
+  .form-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 22px; max-width: 560px; backdrop-filter: blur(8px); position: relative; overflow: hidden; }
+  .form-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent); opacity: .7; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 10.5px; font-weight: 700; color: var(--cyan); margin-bottom: 6px;
+    letter-spacing: 1.5px; text-transform: uppercase; }
+  .field input, .field select, .field textarea { width: 100%; background: var(--bg2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 11px 13px; font-size: 14px; color: var(--text); outline: none; font-family: inherit; }
+  .field input:focus, .field select:focus { border-color: var(--cyan); box-shadow: 0 0 12px var(--cyan-glow); }
+  .field select option { background: var(--bg2); }
+  .hint { font-size: 11px; color: var(--muted2); margin-top: 5px; line-height: 1.5; }
+  .btn { background: linear-gradient(135deg, rgba(0,180,230,.3), rgba(0,212,255,.15)); border: 1px solid var(--cyan);
+    color: var(--cyan); padding: 11px 22px; border-radius: 8px; font-size: 12px; font-weight: 700;
+    letter-spacing: 1.2px; cursor: pointer; font-family: inherit; text-transform: uppercase; transition: .15s; }
+  .btn:hover { box-shadow: 0 0 18px var(--cyan-glow); }
+  .btn.secondary { background: var(--surface); border: 1px solid var(--line); color: var(--muted); }
+  .btn.secondary:hover { border-color: var(--cyan); color: var(--text); box-shadow: none; }
+  .switch { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: #0a2035; border: 1px solid var(--line);
+    border-radius: 100px; cursor: pointer; transition: .2s; }
+  .slider:before { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px;
+    background: var(--muted2); border-radius: 50%; transition: .2s; }
+  input:checked + .slider { background: var(--cyan-soft); border-color: var(--cyan); }
+  input:checked + .slider:before { transform: translateX(18px); background: var(--cyan); box-shadow: 0 0 8px var(--cyan-glow); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .view { display: none; height: 100%; }
+  .view.on { display: block; }
+  #view-chat.on { display: flex; }
+
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--surface2); color: var(--cyan); border: 1px solid var(--cyan); font-size: 12.5px;
+    padding: 12px 22px; border-radius: 8px; letter-spacing: .5px;
+    transition: .25s; z-index: 50; box-shadow: 0 0 24px var(--cyan-glow); max-width: 90vw; backdrop-filter: blur(8px); }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 780px) {
+    #sidebar { position: fixed; z-index: 30; height: 100%; transform: translateX(-105%);
+      transition: .2s; box-shadow: 0 0 40px rgba(0,212,255,.15); }
+    #sidebar.open { transform: none; }
+    #burger { display: block; }
+    .msg { max-width: 86%; }
+    .page { padding: 18px 14px 80px; }
+    .row { flex-wrap: wrap; }
+  }
+  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--cyan); }
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <div class="sb-top">
+    <div class="logo">N</div>
+    <div><h1>NOVA</h1><div class="sub">Système personnel · v2.0</div></div>
+  </div>
+  <button class="sb-new" id="btnNewChat">✚&nbsp; Nouvelle discussion</button>
+  <nav>
+    <button class="nav-item active" data-view="chat"><span class="ico">💬</span> Discussion</button>
+    <button class="nav-item" data-view="brief"><span class="ico">☀️</span> Brief du matin</button>
+    <button class="nav-item" data-view="news"><span class="ico">📰</span> Actualités</button>
+    <button class="nav-item" data-view="planning"><span class="ico">📅</span> Planning <span class="badge" id="evBadge" style="display:none"></span></button>
+    <button class="nav-item" data-view="memory"><span class="ico">🧠</span> Mémoire <span class="badge" id="memBadge" style="display:none"></span></button>
+    <button class="nav-item" data-view="settings"><span class="ico">⚙️</span> Réglages</button>
+  </nav>
+  <div class="sb-foot">
+    <div><span class="brain-dot ko" id="brainDot"></span><span id="brainTxt">Cerveau hors ligne</span></div>
+    <div style="margin-top:6px">Sully-sur-Loire · Web Speech</div>
+  </div>
+</aside>
+
+<div id="main">
+  <div class="topbar">
+    <button id="burger">☰</button>
+    <h2 id="viewTitle">Discussion</h2>
+    <div class="spacer"></div>
+    <button class="tbtn" id="btnStopVoice" style="display:none">⏹ Arrêter la voix</button>
+    <button class="tbtn primary" id="btnBrief">☀️&nbsp; Brief</button>
+  </div>
+
+  <div id="content">
+
+    <!-- Discussion -->
+    <div class="view on" id="view-chat">
+      <div id="chatlog"></div>
+      <div class="composer">
+        <div class="composer-bar">
+          <button class="cbtn" id="mic" title="Parler à Nova">🎤</button>
+          <input id="prompt" placeholder="Dis quelque chose à Nova…" autocomplete="off" />
+          <button class="cbtn" id="send" title="Envoyer">➤</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Brief -->
+    <div class="view" id="view-brief">
+      <div class="page">
+        <div class="page-head">
+          <h2 id="briefHello">Bonjour Dylan</h2>
+          <p>Tout ce qu'il faut savoir pour bien démarrer la journée.</p>
+        </div>
+        <div class="cards">
+          <div class="card" id="cardWeather"><h3>🌤️ Météo — Sully-sur-Loire</h3>
+            <div class="sub">Clique sur « Générer le brief » pour charger les données.</div></div>
+          <div class="card" id="cardAgenda"><h3>📅 Planning du jour</h3>
+            <div class="sub">Aucun événement chargé.</div></div>
+          <div class="card" id="cardNews"><h3>📰 À la une</h3>
+            <div class="sub">Clique sur « Générer le brief » pour charger les flux.</div></div>
+        </div>
+        <div style="margin-top:20px" class="row">
+          <button class="btn" id="btnRefreshBrief">↻&nbsp; Générer le brief</button>
+          <button class="btn secondary" id="btnSpeakBrief">🔊&nbsp; Écouter</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actus -->
+    <div class="view" id="view-news">
+      <div class="page">
+        <div class="page-head"><h2>Actualités</h2><p>Les derniers titres de tes flux RSS (réglables dans Réglages).</p></div>
+        <div class="card" id="newsCard"><div class="sub">Appuie sur « Rafraîchir ».</div></div>
+        <div style="margin-top:16px"><button class="btn" id="btnRefreshNews">↻&nbsp; Rafraîchir</button></div>
+      </div>
+    </div>
+
+    <!-- Planning -->
+    <div class="view" id="view-planning">
+      <div class="page">
+        <div class="page-head"><h2>Planning</h2><p>Tes événements enregistrés dans Nova.</p></div>
+        <div class="form-card" style="margin-bottom:20px">
+          <div class="row">
+            <div class="field" style="flex:1;margin:0"><input id="evTitle" placeholder="Titre de l'événement" /></div>
+            <div class="field" style="margin:0"><input id="evDate" type="datetime-local" /></div>
+            <button class="btn" id="btnAddEvent">Ajouter</button>
+          </div>
+        </div>
+        <div class="card" id="evCard"></div>
+      </div>
+    </div>
+
+    <!-- Mémoire -->
+    <div class="view" id="view-memory">
+      <div class="page">
+        <div class="page-head"><h2>Mémoire de Nova</h2>
+          <p>Ce que Nova a appris de toi. Elle relit ces souvenirs à chaque discussion — tu peux les modifier ou les supprimer.</p></div>
+        <div id="memBox"></div>
+        <div style="margin-top:16px" class="row">
+          <button class="btn secondary" id="btnAddMemo">✚ Ajouter un souvenir</button>
+          <button class="btn secondary" id="btnExportMemo">⬇ Exporter (JSON)</button>
+          <button class="btn secondary" id="btnClearMemo" style="color:var(--danger)">Tout oublier</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Réglages -->
+    <div class="view" id="view-settings">
+      <div class="page">
+        <div class="page-head"><h2>Réglages</h2><p>Cerveau, voix et sources d'actualités.</p></div>
+
+        <div class="form-card" style="margin-bottom:20px">
+          <div class="field">
+            <label>Clé API Mistral</label>
+            <input id="setKey" type="password" placeholder="Colle ta clé (console.mistral.ai)" />
+            <div class="hint">Gratuite sur <b>console.mistral.ai</b> → API Keys. Stockée uniquement dans ce navigateur (localStorage), jamais envoyée ailleurs qu'à Mistral.</div>
+          </div>
+          <div class="field">
+            <label>Voix de Nova</label>
+            <select id="setVoice"></select>
+          </div>
+          <div class="field row">
+            <label class="switch"><input type="checkbox" id="setSpeak" /><span class="slider"></span></label>
+            <span style="font-size:13.5px">Nova parle à voix haute</span>
+          </div>
+          <button class="btn" id="btnSaveSettings">💾 Enregistrer</button>
+        </div>
+
+        <div class="form-card">
+          <div class="field" style="margin-bottom:0">
+            <label>Flux RSS</label>
+            <div class="row" style="margin-bottom:14px">
+              <div class="field" style="flex:1;margin:0"><input id="newFeedName" placeholder="Nom (ex : Le Monde)" /></div>
+              <div class="field" style="flex:2;margin:0"><input id="newFeedUrl" placeholder="https://…/rss" /></div>
+              <button class="btn" id="btnAddFeed">Ajouter</button>
+            </div>
+            <div id="feedList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ===================== ÉTAT ===================== */
+const LS = { key:"nova.apikey", feeds:"nova.feeds", events:"nova.events", mem:"nova.memories",
+  hist:"nova.history", speak:"nova.speak", voice:"nova.voice" };
+const store = {
+  get(k,d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; } },
+  set(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+};
+const CITY = { name:"Sully-sur-Loire", lat:47.7656, lon:2.0789 };
+const DEFAULT_FEEDS = [
+  { name:"Le Monde", url:"https://www.lemonde.fr/rss/une.xml" },
+  { name:"France Info", url:"https://www.francetvinfo.fr/titres.rss" },
+  { name:"Journal du Gamer", url:"https://www.journaldugeek.com/rss/" }
+];
+let memories = store.get(LS.mem, []);
+let history = store.get(LS.hist, []);
+let lastBrief = null, briefData = null, listening = false;
+
+const $ = s => document.querySelector(s);
+const esc = s => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3200); }
+function refreshBadges(){
+  const evs = store.get(LS.events,[]).filter(e => new Date(e.date) >= new Date(new Date().toDateString()));
+  $("#evBadge").style.display = evs.length ? "" : "none"; $("#evBadge").textContent = evs.length;
+  $("#memBadge").style.display = memories.length ? "" : "none"; $("#memBadge").textContent = memories.length;
+  const ok = !!store.get(LS.key, null);
+  $("#brainDot").className = "brain-dot " + (ok?"ok":"ko");
+  $("#brainTxt").textContent = ok ? "Cerveau en ligne" : "Cerveau hors ligne";
+}
+function tickClock(){ $("#clock") && 0; }
+setInterval(() => {}, 600000);
+
+/* ===================== NAVIGATION ===================== */
+const TITLES = { chat:"Discussion", brief:"Brief du matin", news:"Actualités",
+  planning:"Planning", memory:"Mémoire", settings:"Réglages" };
+document.querySelectorAll(".nav-item").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".nav-item").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("on"));
+  $("#view-" + b.dataset.view).classList.add("on");
+  $("#viewTitle").textContent = TITLES[b.dataset.view];
+  $("#sidebar").classList.remove("open");
+  if (b.dataset.view === "brief" && !briefData) morningBrief(true);
+  if (b.dataset.view === "news") renderNewsCache();
+  if (b.dataset.view === "planning") renderEvents();
+  if (b.dataset.view === "memory") renderMem();
+  if (b.dataset.view === "settings") { $("#setKey").value = store.get(LS.key,""); renderFeeds(); pickVoices(); }
+});
+$("#burger").onclick = () => $("#sidebar").classList.toggle("open");
+$("#btnNewChat").onclick = () => { history = []; store.set(LS.hist, history); $("#chatlog").innerHTML = ""; greet(); toast("Nouvelle discussion initialisée"); };
+
+/* ===================== CHAT ===================== */
+const log = $("#chatlog");
+function addMsg(text, who){
+  const d = document.createElement("div"); d.className = "msg " + who;
+  if (who === "nova") d.innerHTML = '<div class="who">NOVA</div>' + esc(text);
+  else if (who === "user") d.textContent = text;
+  else d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+function addTyping(){ const d = document.createElement("div"); d.className = "typing";
+  d.innerHTML = "Analyse en cours <span>●</span><span>●</span><span>●</span>";
+  log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
+
+/* ===================== VOIX ===================== */
+let frVoice = null;
+function pickVoices(){
+  const vs = speechSynthesis.getVoices(); if (!vs.length) return;
+  const fr = vs.filter(v => v.lang.startsWith("fr"));
+  const sel = $("#setVoice"); sel.innerHTML = "";
+  fr.forEach(v => { const o = document.createElement("option"); o.value = v.name; o.textContent = v.name + " (" + v.lang + ")"; sel.appendChild(o); });
+  const saved = store.get(LS.voice, null);
+  frVoice = (saved && fr.find(v => v.name === saved)) || fr.find(v => /female|femme|am[ée]lie|audrey|c[ée]line|google/i.test(v.name)) || fr[0];
+  if (frVoice) sel.value = frVoice.name;
+}
+speechSynthesis.onvoiceschanged = pickVoices;
+function say(text){
+  if (!store.get(LS.speak, true)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/[⟦⟧*_#]/g, ""));
+  u.lang = "fr-FR"; if (frVoice) u.voice = frVoice; u.rate = 1.03;
+  $("#btnStopVoice").style.display = "";
+  u.onend = () => $("#btnStopVoice").style.display = "none";
+  speechSynthesis.speak(u);
+}
+$("#btnStopVoice").onclick = () => { speechSynthesis.cancel(); $("#btnStopVoice").style.display = "none"; };
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, finalText = "";
+if (SR) {
+  recog = new SR(); recog.lang = "fr-FR"; recog.interimResults = true; recog.continuous = false;
+  recog.onstart = () => { listening = true; $("#mic").classList.add("listening"); toast("Nova t'écoute…"); };
+  recog.onend = () => { listening = false; $("#mic").classList.remove("listening");
+    if (finalText.trim()) { finalText = ""; sendMessage(); } };
+  recog.onerror = e => { if (e.error === "not-allowed") toast("Micro refusé — autorise l'accès dans ton navigateur."); };
+  recog.onresult = e => { finalText = "";
+    for (const r of e.results) if (r.isFinal) finalText += r[0].transcript;
+    if (!finalText) finalText = e.results[e.results.length-1][0].transcript;
+    $("#prompt").value = finalText; };
+}
+$("#mic").onclick = () => {
+  if (!recog) { toast("Reconnaissance vocale non supportée ici — utilise Chrome, Edge ou Android."); return; }
+  if (listening) recog.stop(); else { speechSynthesis.cancel(); finalText = ""; recog.start(); }
+};
+
+/* ===================== DONNÉES ===================== */
+const WCODES = { 0:"ciel dégagé",1:"peu nuageux",2:"partiellement nuageux",3:"couvert",45:"brouillard",
+  48:"brouillard givrant",51:"bruine",61:"pluie légère",63:"pluie",65:"forte pluie",66:"pluie verglaçante",
+  71:"neige",73:"neige",75:"forte neige",80:"averses",81:"averses fortes",82:"averses violentes",95:"orage",96:"orage grêle" };
+async function getWeather(){
+  const u = "https://api.open-meteo.com/v1/forecast?latitude=" + CITY.lat + "&longitude=" + CITY.lon +
+    "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,sunrise,sunset&current_weather=true&timezone=Europe%2FParis";
+  const d = await (await fetch(u)).json();
+  return { temp: Math.round(d.current_weather.temperature), wind: Math.round(d.current_weather.windspeed),
+    desc: WCODES[d.daily.weather_code[0]] || "temps variable",
+    max: Math.round(d.daily.temperature_2m_max[0]), min: Math.round(d.daily.temperature_2m_min[0]),
+    rain: d.daily.precipitation_probability_max[0],
+    sunrise: (d.daily.sunrise[0]||"").slice(11,16), sunset: (d.daily.sunset[0]||"").slice(11,16) };
+}
+async function getNews(){
+  const feeds = store.get(LS.feeds, DEFAULT_FEEDS.slice()); const all = [];
+  await Promise.all(feeds.map(async f => {
+    try {
+      const r = await fetch("https://api.rss2json.com/v1/api.json?rss_url=" + encodeURIComponent(f.url) + "&count=5");
+      const d = await r.json();
+      if (d.items) d.items.forEach(i => all.push({ feed: f.name, title: i.title, link: i.link }));
+    } catch(e){}
+  }));
+  return all;
+}
+function todayEvents(){
+  const today = new Date(), out = [];
+  store.get(LS.events, []).forEach(e => { const d = new Date(e.date);
+    if (d.getFullYear()===today.getFullYear() && d.getMonth()===today.getMonth() && d.getDate()===today.getDate())
+      out.push(e); });
+  return out.sort((a,b) => a.date.localeCompare(b.date));
+}
+
+/* ===================== CERVEAU MISTRAL ===================== */
+const PERSONA = "Tu es Nova, l'assistante personnelle de Dylan — un système personnel avancé à la manière de JARVIS, mais au féminin et complice. Personnalité : taquine, chaleureuse, espiègle mais précise et efficace. Tutoie Dylan, reste naturelle et concrète. Tes réponses sont courtes et orales (2-4 phrases en général) car elles sont lues à voix haute : pas de markdown, pas de listes à puces, pas d'emojis, du texte parlé fluide. Pour mémoriser durablement un fait ou une préférence importante (goûts, habitudes, prénoms, projets), termine ta réponse par le jeton ⟦RETIENT: court fait⟧ (plusieurs possibles). Ne l'utilise pas pour du trivial.";
+function buildSystem(){
+  const now = new Date().toLocaleString("fr-FR", { weekday:"long", day:"numeric", month:"long", hour:"2-digit", minute:"2-digit" });
+  let s = PERSONA + "\n\nDate et heure : " + now + ". Dylan habite à " + CITY.name + ".";
+  if (memories.length) s += "\n\nCe que tu sais de Dylan (ta mémoire) :\n- " + memories.slice(-40).join("\n- ");
+  if (lastBrief) s += "\n\nDonnées du dernier brief :\n" + lastBrief;
+  return s;
+}
+async function askNova(userText){
+  const key = store.get(LS.key, null);
+  addMsg(userText, "user");
+  if (!key) { const m = "Il me faut ma clé API Mistral pour penser ! Ouvre Réglages et colle ta clé (gratuite sur console.mistral.ai).";
+    addMsg(m, "nova"); say(m); return; }
+  const typing = addTyping();
+  try {
+    const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type":"application/json", "Authorization": "Bearer " + key },
+      body: JSON.stringify({ model:"mistral-small-latest", temperature:0.7, max_tokens:500,
+        messages: [{ role:"system", content: buildSystem() }, ...history.slice(-10), { role:"user", content: userText }] })
+    });
+    if (r.status === 401) { typing.remove(); addMsg("Clé API invalide — vérifie les Réglages.", "sys"); return; }
+    if (r.status === 429) { typing.remove(); addMsg("Trop de requêtes, petite pause…", "sys"); return; }
+    const d = await r.json();
+    let reply = (d.choices[0].message.content || "").trim();
+    const memos = [...reply.matchAll(/⟦RETIENT:\s*(.+?)⟧/g)].map(m => m[1].trim());
+    reply = reply.replace(/⟦RETIENT:\s*.+?⟧/g, "").trim();
+    typing.remove();
+    memos.forEach(m => { const n = m.replace(/\s+/g," ").trim();
+      if (!memories.some(x => x.toLowerCase() === n.toLowerCase())) { memories.push(n); toast("🧠 Nova a retenu : " + n); } });
+    store.set(LS.mem, memories); refreshBadges();
+    history.push({ role:"user", content:userText }, { role:"assistant", content:reply }); store.set(LS.hist, history);
+    addMsg(reply, "nova"); say(reply);
+  } catch(e) { typing.remove(); addMsg("Connexion à mon cerveau impossible — vérifie ta connexion internet.", "sys"); }
+}
+function sendMessage(){
+  const t = $("#prompt").value.trim(); if (!t) return;
+  $("#prompt").value = ""; speechSynthesis.cancel();
+  const low = t.toLowerCase();
+  if (/brief (du matin|matin)/.test(low)) { addMsg(t, "user"); return morningBrief(); }
+  if (/météo|temps (fait-il|dehors)/.test(low)) { addMsg(t, "user"); return quickWeather(); }
+  askNova(t);
+}
+$("#send").onclick = sendMessage;
+$("#prompt").addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
+async function quickWeather(){
+  try { const w = await getWeather();
+    const t = "À " + CITY.name + " : " + w.temp + " degrés, journée " + w.desc + ", entre " + w.min + " et " + w.max + " degrés, risque de pluie " + w.rain + " pour cent.";
+    addMsg(t, "nova"); say(t);
+  } catch { addMsg("Impossible de récupérer la météo.", "sys"); }
+}
+
+/* ===================== BRIEF ===================== */
+function composeBrief(w, news, evs){
+  let txt = "Bonjour Dylan ! Nous sommes le " + new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}) + ". ";
+  if (w) txt += "À " + CITY.name + ", " + w.temp + " degrés actuellement, journée " + w.desc + ", entre " + w.min + " et " + w.max + ", risque de pluie " + w.rain + " pour cent. ";
+  if (evs.length) txt += "Au programme aujourd'hui : " + evs.map(e => e.title + " à " + new Date(e.date).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})).join(", ") + ". ";
+  else txt += "Rien au planning aujourd'hui. ";
+  if (news.length) txt += "Dans l'actualité : " + news.slice(0,5).map(n => n.title).join(" ; ") + ". Passe une bonne journée !";
+  return txt;
+}
+async function morningBrief(silent){
+  const btn = $("#btnRefreshBrief"); if (btn) { btn.disabled = true; btn.textContent = "Chargement…"; }
+  const [w, news] = await Promise.all([ getWeather().catch(()=>null), getNews().catch(()=>[]) ]);
+  const evs = todayEvents();
+  briefData = { w, news, evs };
+  const txt = composeBrief(w, news, evs);
+  lastBrief = txt;
+  $("#cardWeather").innerHTML = "<h3>🌤️ Météo — Sully-sur-Loire</h3>" + (w ?
+    '<div class="big">' + w.temp + '°C</div><div class="sub">' + (w.desc.charAt(0).toUpperCase()+w.desc.slice(1)) +
+    " · vent " + w.wind + " km/h<br>Min " + w.min + "° · Max " + w.max + "° · pluie " + w.rain +
+    "%<br>☀️ " + w.sunrise + " · 🌙 " + w.sunset + "</div>" :
+    '<div class="sub">Météo indisponible (connexion ?).</div>');
+  $("#cardAgenda").innerHTML = "<h3>📅 Planning du jour</h3>" + (evs.length ?
+    evs.map(e => '<div class="krow"><span class="k">' + esc(e.title) + '</span><span class="v">' + new Date(e.date).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) + "</span></div>").join("") :
+    '<div class="sub">Aucun événement aujourd\'hui. Journée libre !</div>');
+  $("#cardNews").innerHTML = "<h3>📰 À la une</h3>" + (news.length ?
+    news.slice(0,6).map(n => '<div class="news-item"><span class="src">' + esc(n.feed) + "</span><br>" + esc(n.title) + "</div>").join("") :
+    '<div class="sub">Flux indisponibles.</div>');
+  renderNewsCache();
+  if (btn) { btn.disabled = false; btn.textContent = "↻ Générer le brief"; }
+  if (!silent) { addMsg("☀️ " + txt, "nova"); say(txt); }
+  else toast("Brief prêt");
+}
+$("#btnBrief").onclick = () => { document.querySelector('[data-view="brief"]').click(); morningBrief(); };
+$("#btnRefreshBrief").onclick = () => morningBrief(true);
+$("#btnSpeakBrief").onclick = () => { if (lastBrief) say(lastBrief); else toast("Génère d'abord le brief."); };
+
+/* ===================== NEWS ===================== */
+function renderNewsCache(){
+  const n = briefData && briefData.news ? briefData.news : [];
+  $("#newsCard").innerHTML = n.length ? n.map(x =>
+    '<div class="news-item"><span class="src">' + esc(x.feed) + '</span><br><a href="' + esc(x.link) + '" target="_blank" rel="noopener">' + esc(x.title) + "</a></div>").join("")
+    : '<div class="sub">Rien de chargé — appuie sur « Rafraîchir ».</div>';
+}
+$("#btnRefreshNews").onclick = async () => {
+  const b = $("#btnRefreshNews"); b.disabled = true; b.textContent = "Chargement…";
+  const news = await getNews().catch(()=>[]);
+  briefData = Object.assign(briefData || {}, { news: news });
+  renderNewsCache();
+  b.disabled = false; b.textContent = "↻ Rafraîchir";
+};
+
+/* ===================== PLANNING ===================== */
+$("#btnAddEvent").onclick = () => {
+  const t = $("#evTitle").value.trim(), d = $("#evDate").value;
+  if (!t || !d) return toast("Titre et date obligatoires.");
+  const evs = store.get(LS.events, []); evs.push({ title: t, date: d }); store.set(LS.events, evs);
+  $("#evTitle").value = ""; $("#evDate").value = "";
+  renderEvents(); refreshBadges(); toast("Événement ajouté");
+};
+function delEvent(i){ const e = store.get(LS.events, []); e.splice(i,1); store.set(LS.events, e); renderEvents(); refreshBadges(); }
+function renderEvents(){
+  const evs = store.get(LS.events, []).sort((a,b) => a.date.localeCompare(b.date));
+  $("#evCard").innerHTML = evs.length ? evs.map((e,i) => {
+    const d = new Date(e.date);
+    return '<div class="ev-item"><div class="ev-date">' + d.toLocaleDateString("fr-FR",{month:"short"}) +
+      '<span class="d">' + d.getDate() + "</span>" + d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) + "</div>" +
+      '<div class="ev-body"><div class="t">' + esc(e.title) + '</div><div class="h">' +
+      d.toLocaleDateString("fr-FR",{weekday:"long"}) + (d < new Date() ? " · passé" : "") + '</div></div>' +
+      '<button class="del" onclick="delEvent(' + i + ')" title="Supprimer">🗑</button></div>';
+  }).join("") : '<div class="sub">Aucun événement. Ajoute-en un ci-dessus !</div>';
+}
+
+/* ===================== MÉMOIRE ===================== */
+$("#btnAddMemo").onclick = () => {
+  const m = prompt("Quoi retenir ?"); if (!m || !m.trim()) return;
+  memories.push(m.trim()); store.set(LS.mem, memories); renderMem(); refreshBadges();
+};
+$("#btnExportMemo").onclick = () => {
+  const blob = new Blob([JSON.stringify(memories, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "nova-memoire.json"; a.click();
+};
+$("#btnClearMemo").onclick = () => {
+  if (!confirm("Nova oubliera tout. Confirmer ?")) return;
+  memories = []; store.set(LS.mem, memories); renderMem(); refreshBadges();
+};
+function delMem(i){ memories.splice(i,1); store.set(LS.mem, memories); renderMem(); refreshBadges(); }
+function renderMem(){
+  $("#memBox").innerHTML = memories.length ? memories.map((m,i) =>
+    '<div class="memo"><span>' + esc(m) + '</span><button class="del" onclick="delMem(' + i + ')">🗑</button></div>').join("")
+    : '<div class="card"><div class="sub">Nova n\'a encore rien retenu. Dis-lui « retiens que… » dans la discussion.</div></div>';
+}
+
+/* ===================== RÉGLAGES ===================== */
+$("#btnSaveSettings").onclick = () => {
+  store.set(LS.key, $("#setKey").value.trim());
+  store.set(LS.speak, $("#setSpeak").checked);
+  store.set(LS.voice, $("#setVoice").value);
+  const v = speechSynthesis.getVoices().find(x => x.name === $("#setVoice").value);
+  if (v) frVoice = v;
+  refreshBadges(); toast("Réglages enregistrés");
+};
+$("#btnAddFeed").onclick = () => {
+  const n = $("#newFeedName").value.trim(), u = $("#newFeedUrl").value.trim();
+  if (!u) return toast("URL obligatoire.");
+  const feeds = store.get(LS.feeds, DEFAULT_FEEDS.slice());
+  if (feeds.some(f => f.url === u)) return toast("Ce flux existe déjà.");
+  feeds.push({ name: n || u.replace(/^https?:\/\//,"").split("/")[0], url: u });
+  store.set(LS.feeds, feeds); $("#newFeedName").value = ""; $("#newFeedUrl").value = "";
+  renderFeeds(); toast("Flux ajouté");
+};
+function delFeed(i){ const f = store.get(LS.feeds, []); f.splice(i,1); store.set(LS.feeds, f); renderFeeds(); }
+function renderFeeds(){
+  const feeds = store.get(LS.feeds, DEFAULT_FEEDS.slice());
+  $("#feedList").innerHTML = feeds.map((f,i) =>
+    '<span class="chip">📰 ' + esc(f.name) + ' <button onclick="delFeed(' + i + ')" title="Supprimer">✕</button></span>').join("");
+}
+
+/* ===================== ACCUEIL ===================== */
+function greet(){
+  const h = new Date().getHours();
+  const g = h < 6 ? "Encore debout, Dylan ?" : h < 12 ? "Bonjour Dylan !" : h < 18 ? "Salut Dylan !" : "Bonsoir Dylan !";
+  addMsg("Système Nova en ligne. " + g + " Pose-moi une question, ou demande-moi ton brief du matin.", "nova");
+  if (!store.get(LS.key, null)) addMsg("Astuce : ajoute ta clé API Mistral dans Réglages pour activer ma discussion libre. La météo, les actus et le planning marchent déjà sans clé.", "sys");
+  if (memories.length) addMsg("(Mémoire chargée : " + memories.length + " souvenir" + (memories.length>1?"s":"") + " — voir Mémoire)", "sys");
+}
+greet(); refreshBadges(); pickVoices(); renderEvents(); renderFeeds();
+window.delEvent = delEvent; window.delMem = delMem; window.delFeed = delFeed;
+</script>
+</body>
+</html>
